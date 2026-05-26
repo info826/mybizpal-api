@@ -7,6 +7,9 @@ const axios    = require("axios");
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
+// Webhook MUST be mounted before express.json() — needs raw body for signature verification
+app.use("/api", require("./routes/webhook"));
+
 app.use(express.json());
 app.use(cors({
   origin: [
@@ -98,5 +101,7 @@ app.post("/api/demo-request", async (req, res) => {
   });
   res.status(200).json({ success: true });
 });
+
+app.use("/api", require("./routes/checkout"));
 
 app.listen(PORT, () => console.log(`MyBizPal API running on port ${PORT}`));
