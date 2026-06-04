@@ -7,6 +7,12 @@ const axios    = require("axios");
 const app  = express();
 const PORT = process.env.PORT || 4000;
 
+// Behind Render/Cloudflare — trust the proxy so we can read the real client IP
+app.set("trust proxy", true);
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 // Webhook MUST be mounted before express.json() — needs raw body for signature verification
 app.use("/api", require("./routes/webhook"));
 
@@ -100,6 +106,54 @@ app.post("/api/demo-request", async (req, res) => {
       : console.log(`[${label}] OK`);
   });
   res.status(200).json({ success: true });
+});
+
+// ── Cookie consent logging (PECR / UK GDPR audit trail) ──────────────────────
+// Resolve the real client IP from proxy headers (Cloudflare → Render → Express).
+function getClientIp(req) {
+  const xff = (req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return (
+    req.headers["cf-connecting-ip"] ||
+    req.headers["true-client-ip"] ||
+    xff ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    null
+  );
+}
+
+app.post("/api/consent-log", async (req, res) => {
+  const { consent_type, page_url } = req.body;
+  if (!consent_type) {
+    return res.status(400).json({ error: "Missing consent_type" });
+  }
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("[consent-log] Supabase env vars not configured");
+    return res.status(500).json({ error: "Logging not configured" });
+  }
+
+  const record = {
+    consent_type,
+    user_agent: req.body.user_agent || req.headers["user-agent"] || null,
+    page_url: page_url || null,
+    ip_address: getClientIp(req),
+  };
+
+  try {
+    await axios.post(`${SUPABASE_URL}/rest/v1/consent_logs`, record, {
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Prefer: "return=minimal",
+      },
+    });
+    console.log(`[consent-log] ${consent_type} from ${record.ip_address}`);
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("[consent-log] Supabase insert failed:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to log consent" });
+  }
 });
 
 app.use("/api", require("./routes/checkout"));
