@@ -156,6 +156,51 @@ app.post("/api/consent-log", async (req, res) => {
   }
 });
 
+app.post("/api/sales-lead", async (req, res) => {
+  const {
+    companyWebsite, businessEmail, firstName, lastName, companyName,
+    industry, companySize, country, phone, platformInterest, useCase, heardAbout,
+  } = req.body;
+  if (!businessEmail) {
+    return res.status(400).json({ error: "Missing required field: businessEmail" });
+  }
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("[sales-lead] Supabase env vars not configured");
+    return res.status(500).json({ error: "Logging not configured" });
+  }
+
+  const record = {
+    company_website: companyWebsite || null,
+    business_email: businessEmail,
+    first_name: firstName || null,
+    last_name: lastName || null,
+    company_name: companyName || null,
+    industry: industry || null,
+    company_size: companySize || null,
+    country: country || null,
+    phone: phone || null,
+    platform_interest: platformInterest || null,
+    use_case: useCase || null,
+    heard_about: heardAbout || null,
+  };
+
+  try {
+    await axios.post(`${SUPABASE_URL}/rest/v1/sales_leads`, record, {
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        Prefer: "return=minimal",
+      },
+    });
+    console.log(`[sales-lead] ${businessEmail}`);
+    res.status(200).json({ success: true });
+  } catch (err) {
+    console.error("[sales-lead] Supabase insert failed:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to save lead" });
+  }
+});
+
 app.use("/api", require("./routes/checkout"));
 
 app.listen(PORT, () => console.log(`MyBizPal API running on port ${PORT}`));
