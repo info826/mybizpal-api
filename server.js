@@ -21,6 +21,7 @@ app.use(cors({
   origin: [
     "https://mybizpal.ai",
     "https://www.mybizpal.ai",
+    "https://app.mybizpal.ai",
     "http://localhost:3000",
   ],
   methods: ["GET", "POST", "OPTIONS"],
