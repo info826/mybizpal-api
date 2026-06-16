@@ -1,10 +1,15 @@
 const express = require("express");
 const router  = express.Router();
 const Stripe  = require("stripe");
+const axios   = require("axios");
 const { insert, patch, select } = require("../lib/supabase");
 
 const stripe        = Stripe(process.env.STRIPE_SECRET_KEY);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+// n8n workflow that sends the welcome email on successful checkout.
+const WELCOME_EMAIL_WEBHOOK_URL =
+  "https://mybizpal-n8n.onrender.com/webhook/stripe-payment-success";
 
 // Helper: convert a Unix timestamp (seconds) to ISO string, or null.
 function tsToIso(unix) {
@@ -76,6 +81,30 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
         await patch("client_profiles", { user_id: `eq.${userId}` }, updates);
         console.log(`[Stripe] provisioned user ${userId} — plan=${plan}, cycle=${billingCycle}, sub=${session.subscription}`);
+
+        // Trigger the welcome email (non-blocking, idempotent). A failure here
+        // must never bubble up: Stripe would retry the whole webhook over an
+        // email error. welcome_email_sent guards against duplicate sends.
+        try {
+          const [profile] = await select(
+            "client_profiles",
+            { user_id: `eq.${userId}` },
+            { columns: "email,first_name,business_name,welcome_email_sent" }
+          );
+          if (profile?.email && profile.welcome_email_sent === false) {
+            await axios.post(WELCOME_EMAIL_WEBHOOK_URL, {
+              email:         profile.email,
+              first_name:    profile.first_name,
+              plan_name:     plan,
+              business_name: profile.business_name,
+              plan_status:   "trialing",
+            });
+            await patch("client_profiles", { user_id: `eq.${userId}` }, { welcome_email_sent: true });
+            console.log(`[Stripe] welcome email triggered for user ${userId}`);
+          }
+        } catch (err) {
+          console.error(`[Stripe] welcome email trigger failed for user ${userId}:`, err.response?.data || err.message);
+        }
         break;
       }
 
