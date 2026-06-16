@@ -86,21 +86,28 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         // must never bubble up: Stripe would retry the whole webhook over an
         // email error. welcome_email_sent guards against duplicate sends.
         try {
-          const [profile] = await select(
-            "client_profiles",
-            { user_id: `eq.${userId}` },
-            { columns: "email,first_name,business_name,welcome_email_sent" }
-          );
-          if (profile?.email && profile.welcome_email_sent === false) {
-            await axios.post(WELCOME_EMAIL_WEBHOOK_URL, {
-              email:         profile.email,
-              first_name:    profile.first_name,
-              plan_name:     plan,
-              business_name: profile.business_name,
-              plan_status:   "trialing",
-            });
-            await patch("client_profiles", { user_id: `eq.${userId}` }, { welcome_email_sent: true });
-            console.log(`[Stripe] welcome email triggered for user ${userId}`);
+          // Email isn't stored on client_profiles (it lives in auth.users);
+          // Stripe carries it on the checkout session, so read it from there.
+          const email = session.customer_details?.email || session.customer_email;
+          if (!email) {
+            console.warn(`[Stripe] no email on session ${session.id} — skipping welcome email for user ${userId}`);
+          } else {
+            const [profile] = await select(
+              "client_profiles",
+              { user_id: `eq.${userId}` },
+              { columns: "first_name,business_name,welcome_email_sent" }
+            );
+            if (profile && profile.welcome_email_sent === false) {
+              await axios.post(WELCOME_EMAIL_WEBHOOK_URL, {
+                email,
+                first_name:    profile.first_name,
+                plan_name:     plan,
+                business_name: profile.business_name,
+                plan_status:   "trialing",
+              });
+              await patch("client_profiles", { user_id: `eq.${userId}` }, { welcome_email_sent: true });
+              console.log(`[Stripe] welcome email triggered for user ${userId}`);
+            }
           }
         } catch (err) {
           console.error(`[Stripe] welcome email trigger failed for user ${userId}:`, err.response?.data || err.message);
