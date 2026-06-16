@@ -86,23 +86,20 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         // must never bubble up: Stripe would retry the whole webhook over an
         // email error. welcome_email_sent guards against duplicate sends.
         try {
-          // Email isn't stored on client_profiles (it lives in auth.users);
-          // Stripe carries it on the checkout session, so read it from there.
-          const email = session.customer_details?.email || session.customer_email;
-          if (!email) {
-            console.warn(`[Stripe] no email on session ${session.id} — skipping welcome email for user ${userId}`);
-          } else {
-            const [profile] = await select(
-              "client_profiles",
-              { user_id: `eq.${userId}` },
-              { columns: "first_name,business_name,welcome_email_sent" }
-            );
-            if (profile && profile.welcome_email_sent === false) {
+          const [profile] = await select(
+            "client_profiles",
+            { user_id: `eq.${userId}` },
+            { columns: "first_name,company,billing_email,welcome_email_sent" }
+          );
+          if (profile && profile.welcome_email_sent === false) {
+            if (!profile.billing_email) {
+              console.warn(`[Stripe] no billing_email for user ${userId} — skipping welcome email`);
+            } else {
               await axios.post(WELCOME_EMAIL_WEBHOOK_URL, {
-                email,
+                email:         profile.billing_email,
                 first_name:    profile.first_name,
                 plan_name:     plan,
-                business_name: profile.business_name,
+                business_name: profile.company,
                 plan_status:   "trialing",
               });
               await patch("client_profiles", { user_id: `eq.${userId}` }, { welcome_email_sent: true });
