@@ -25,7 +25,7 @@ app.use(cors({
     "http://localhost:3000",
   ],
   methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
+  allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
 app.get("/health", (req, res) => {
@@ -203,5 +203,6 @@ app.post("/api/sales-lead", async (req, res) => {
 });
 
 app.use("/api", require("./routes/checkout"));
+app.use("/api", require("./routes/portal"));
 
 app.listen(PORT, () => console.log(`MyBizPal API running on port ${PORT}`));
